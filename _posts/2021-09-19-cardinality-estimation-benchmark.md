@@ -8,7 +8,7 @@ title: "Cardinality Estimation Benchmark"
 
 There has been a lot of interest in using ML for cardinality estimation. The motivating application is often query optimization: when searching for the best execution plan, a query optimizer needs to estimate intermediate result sizes. In the most simplified setting, a better query plan may need to process smaller sized intermediate results, thereby utilizing fewer resources, and executing faster. Several approaches have shown that one can consistently outperform DBMS estimators, often by orders of magnitude in terms of average estimation accuracy. However, improving estimation accuracy may not necessarily improve an optimizer's final query plan, as highlighted in the following simple example[^estimation_plan_quality].
 
-![Plan Cost Intuition](/assets/ceb/CEB-blog-intuition.png)
+![Plan Cost Intuition](/assets/ceb/ceb-blog-intuition.jpeg)
 
 We utilize a novel programmatic templating scheme[^templates] to generate over 15K challenging queries on two databases (IMDb and StackExchange). More crucially, we provide a clean API to evaluate cardinality estimations on all of a query's subplans with respect to their impact on query plans.
 
@@ -22,79 +22,66 @@ The subplan cardinality estimates can be fed into PostgreSQL, which gives us the
 
 ![CEB query plan example](/assets/ceb/1a66-plans.jpeg)
 
-This whole process is automated in the [CEB GitHub repository](https://github.com/learnedsystems/ceb) --- one just needs to provide the subplan estimates. The colorbar goes from green, i.e., cheap nodes (scan or join operators) to expensive nodes. Thus, looking for the red nodes immediately shows us why the estimates messed up: PostgreSQL underestimated cardinalities of two key nodes, and thus, using a nested-loop join was a bad choice --- since the true cardinalities of these nodes were large, and would therefore require a lot more processing. This is a common pattern of PostgreSQL cardinality underestimates resulting in bad plans: in fact, most of the challenging Join Order Benchmark cases fall into this category. But, we also see examples in CEB where PostgreSQL gets a worse plan because of overestimates, for instance consider query 2a61 below.
+This whole process is automated in the [CEB GitHub repository](https://github.com/learnedsystems/ceb) --- one just needs to provide the subplan estimates. Each node is a scan or join operator. The colorbar for the nodes goes from green, i.e., cheap operations to expensive operations. Thus, looking for the red nodes immediately shows us why the estimates messed up: PostgreSQL underestimated cardinalities of two key nodes (highlighted in the left figure), and thus, using a nested-loop join was a bad choice --- since the true cardinalities of these nodes were large, and would therefore require a lot more processing. This is a common pattern of PostgreSQL cardinality underestimates resulting in bad plans. That being said, we also see examples in CEB where PostgreSQL gets a worse plan due to overestimates, and other subtler motifs.
 
-![CEB query plan example2](/assets/ceb/2a61-plans.jpeg)
+<!--But, we also see examples in CEB where PostgreSQL gets a worse plan because of overestimates, for instance consider query 2a61 below.-->
+
+<!--![CEB query plan example2](/assets/ceb/2a61-plans.jpeg)-->
+
+We provide a simple featurization scheme for queries, and data loaders for PyTorch, which we use to train several known supervised learning models in the [CEB repo](http://github.com/learnedsystems/CEB). One of the key results we find is that when the query workload matches the training workload, learned models tend to do very well in terms of query plan performance, but when the workload changes somewhat, the learned models can be surprisingly brittle:
+
+![CEB key result](/assets/ceb/CEB-blog-runtimes.jpeg)
+
+The figure on the left has the training / test set queries split equally on each template (only test set results are shown). We see even the mean of almost 6K queries shows a large gap between PostgreSQL estimates and learned models --- this translates to several hours faster total runtime of the workload. The figure on the right splits training / test queries such that queries from half the templates are in the training set, and the rest are in the test set. Since we have only a few templates, the performance can be very sensitive to the particular seed used to do the split, therefore, we show the results across ten such splits (seeds = 1-10). Observe that there are some extreme splits where the learned model performance can degrade dramatically.
+
+These trends are also reflected when we use Postgres Plan Cost as the evaluation metric:
+
+![CEB key result2](/assets/ceb/CEB-blog-ppc.jpeg)
+
+Computing runtimes is significantly expensive --- and this experiment shows that
+we can often rely on trusting the Plan Cost evaluation metric instead, although
+the exact relationship between the runtimes and the plan costs should be an
+open research problem.
 
 # Why Is This Benchmark Needed?
 
-The [Join Order Benchmark (JOB)](https://github.com/gregrahn/join-order-benchmark) did a great job of highlighting why TPC-style synthetic benchmarks may not be enough for evaluating query optimizers, in particular, the impact of cardinality estimation. While JOB illustrates query optimization challenges, it contains too few queries for a cardinality estimation benchmark. Below table shows key properties of CEB compared to JOB.
+The [Join Order Benchmark (JOB)](https://github.com/gregrahn/join-order-benchmark) did a great job of highlighting why TPC-style synthetic benchmarks may not be enough for evaluating query optimizers, in particular, the impact of cardinality estimation.
+In the [CEB repo](http://github.com/learnedsystems/CEB), we also provide cardinality data for JOB, and other derived workloads, such as [JOB-M](https://github.com/neurocard/neurocard), or [JOB-light](https://github.com/andreaskipf/learnedcardinalities/blob/master/workloads/job-light.sql), so they can be as easily evaluated with the tools described so far.
+However, even though JOB illustrates query optimization challenges, it contains too few queries for a cardinality estimation benchmark suited to the deep learning style models often used today. The table below shows key properties of CEB compared to JOB.
 
+<!--![Benchmarks comparison](/assets/ceb/CEB-benchmark-comparison.jpeg){:height="360px" width="360px"}-->
 
-There are several reasons for a larger benchmark:
+<p align="center">
+  <img width="360" height="360" src="/assets/ceb/CEB-benchmark-comparison.jpeg"
+  />
+</p>
 
-* <b>Supervised learning / Query-driven models.</b> Models, such as [MSCN](https://github.com/andreaskipf/learnedcardinalities), learn based on a representative query workload; workloads with <= 4 queries per template, such as JOB, are not great for training such models. By specializing to the known query patterns, such models can achieve excellent performance without explicitly modeling the data distribution. They can achieve excellent performance at a fraction of the storage / inference costs of any data-driven method (e.g., NeuroCard models for IMDb went to several 100MBs, while MSCN models we used were < 2MB). Query-driven models are also easier to adapt to all types of queries, such as those involving self-joins, LIKE filters, etc.; which are not supported by data-driven models.
+There are several reasons why a larger benchmark is useful. Two critical motivations for us were:
 
-<!-- In addition, recent research on [Fauce](http://pasalabs.org/papers/2021/VLDB21_Fauce.pdf) has shown that query-driven models can outperform data-driven ones even in the restricted case of equality/range predicates in terms of estimation accuracy. Another advantage of query-driven models, as also demonstrated by Fauce, is their ability to provide uncertainty estimates. -->
+* <b>Query-driven models require large training sets. </b>
+Models, such as [MSCN](https://github.com/andreaskipf/learnedcardinalities), [Fully Connected Neural Nets (FCNN) / XGBoost](https://dl.acm.org/doi/10.14778/3329772.3329780), or [Fauce](http://pasalabs.org/papers/2021/VLDB21_Fauce.pdf) learn from representative workloads.
+Therefore, having <= 4 queries per template, such as in JOB, is not great for training such models.
+Note that there are no shortage of representative SQL queries in industry settings --- thus, the potential benefits of query driven approaches make it a compelling use case to study.
+Under appropriate circumstances, benefits over data driven models include: significantly smaller sizes (e.g., [Neurocard](https://arxiv.org/abs/2006.08109) models for a restricted subset of IMDb takes 100s of MBs, while MSCN style models are < 2MB), flexibility to support all kinds of queries (e.g., self-joins or regex filters), [uncertainty estimates (Fauce)](http://pasalabs.org/papers/2021/VLDB21_Fauce.pdf), incorporating runtime information as features --- such as estimates from heuristic estimators (proposed [here](https://dl.acm.org/doi/10.14778/3329772.3329780)), sampling (e.g., see sample bitmaps proposed in [MSCN](https://arxiv.org/abs/1809.00677)).
 
-* <b>Deep learning models, and edge cases.</b>
+* <b>Gaining confidence in deep learning models through rich execution scenarios and edge cases.</b>
 For traditional cardinality estimation models, which were based on analytical formulas, we could be confident of their functioning, including shortcomings, based on intuitive analysis. A lot of the newer models are based on deep learning based black box techniques. Even when a model does well on a particular task --- it does not guarantee that it will have a predictably good performance in another scenario. At the same time, there is a promise of huge performance improvements. One way to gain confidence in these models is to show that they work well across significantly different, and challenging scenarios. Thus, the techniques used for developing CEB aim to create queries with a lot of edge cases, and challenges, which should be useful to study when these models work well, and when they don't. This should let us study their performance in various contexts --- changing workloads, changing data, different training set sizes, changing model parameters, and so on.
 
-<!--But, these models are essentially complex black boxes, and a lot-->
-<!--remains to be studied about when we can be confident in their predictions.  But, with deep learning based models, it is hard-->
-  <!--to predict when things may go wrong. Therefore, we require, large, diverse-->
-  <!--workloads, full of edge cases which may help us to identify thwe weakenesses-->
-  <!--of such models, so that we may be able to devise methods to solve them, and-->
-  <!--therefore, gain confidence in them.-->
+<!--# Learned Models-->
 
-<!--We also provide other commonly used datasets, such as JOB, JOB-M, JOB-light,-->
-   <!--and their cardinalities + in the same format. Why is new needed. JOB-light-->
-   <!--example; JOB-M and JOB are more challenging, BUT: ; In particular, most of-->
-   <!--these queries run quite fast on PostgreSQL + indexes ---- link to our paper;-->
-   <!--Another new benchmark --- link ziniu --- was published last week, with similar-->
-   <!--motivations; Moreover, they find Postgres Plan Cost as a useful metric to-->
-   <!--evaluate the queries as well.-->
-
-<!--Traditional models have well defined assumptions, like column independence. Therefore, their errors are also well understood, and approaches.-->
-
-<!--Redundancy *good*. Provide smaller subset of queries as well. Not done enough-->
-<!--analysis to know if we really need these many queries etc., or what is a good-->
-<!--subset. Certainly, for initial evaluations, you should not use the whole workload at once.-->
-
-<!--For instance, as we show in X, as query distributions vary, the estimation accuracy of thee models can still be significantly better than DBMS heuristics, but its query performance can get unpredictably worse. Other recent work Y also shows how these models can have drastically varying performance as you update the data, or change the query templates, and so on.-->
-
-<!--In order for such models to get practical acceptance, we need to understand when their estimates are unreliable, and how these impact query plans. To do this, we introduce easily usable tools to evaluate the impact of cardinality estimates on query optimization.-->
-
-<!--A standard way to evaluate cardinality estimation models is Q-Error.-->
-
-
-<!--Given the cardinality estimates for all of a query’s subplans, we can then ask how good is the query plan that would be generated by a DBMS using these. In Figure X, we show the query plan for one query using the estimates of PostgreSQL; Along with the plan, for every node we also show the true value and the estimate (rounded to the nearest thousand). This gives us an insight into the thinking of the optimizer behind choosing the given plan.-->
-
-<!--In Figure Y, we see what would be the plan chosen by the optimizer given true cardinalities. This lets us better analyze how the cardinality mis-estimates impact the optimizer.-->
-
-<!--These plots are automatically generated with each run.-->
-
-<!--Why do we need more queries?-->
-
-<!--Traditional, histogram based models are well understood, so we can be reasonably sure of their behavior, including their drawbacks, after seeing their performance on a limited set of queries. For instance, JOB served as a great benchmark to highlight the edge cases that can cause significant query performance degradation.-->
-
-<!--But, with increasingly more complex ML models, it is less clear how to analyze them. We generate a lot of queries in a pseudo-random fashion to maximize the chances of generating edge cases that can trip up these models in surprising ways; thus while the average query in the CEB workload may not be very challenging to optimize, it will have several of these edge cases, and we notice this by observing how the 99th percentile runtimes get significantly slower across the board.-->
-
-# Learned Models
-
-We provide a simple featurization scheme for queries, and data loaders for PyTorch, which we use to train several known supervised learning models in the [CEB repo](http://github.com/learnedsystems/CEB). Based on our formulation, and importance, of the Plan Costs, we derived a differentiable loss function that can be a drop in replacement for Q-Error to train neural networks, called Flow-Loss. It is evaluated in detail the paper [here](http://vldb.org/pvldb/vol14/p2019-negi.pdf), and we will discuss it further in a future blog post.
+<!--Based on our formulation, and importance, of the Plan Costs, we derived a differentiable loss function that can be a drop in replacement for Q-Error to train neural networks, called Flow-Loss. It is evaluated in detail the paper [here](http://vldb.org/pvldb/vol14/p2019-negi.pdf), and we will discuss it further in a future blog post.-->
 
 # Next Steps
 
-We would love you to contribute to further developing CEB, or explore research questions around it. Here are a few ideas:
+We would love to get your contributions to further developing CEB, or exploring research questions using it. Here are a few ideas:
 
 * <b>Adding more DBs, and query workloads.</b> There are a lot of learned models for cardinality estimation, and very few challenging evaluation scenarios. Thus, it is hard to compare these methods, and to reliably distinguish between the strengths and weaknesses of these approaches. There are two steps to expanding on the evaluation scenarios in CEB. First, we need new databases --- for instance, if you have an interesting real-world database in PostgreSQL, then providing a pgdump for it should allow us to easily integrate it into CEB. We provide IMDb and StackExchange, and plan to add a couple of others in the future. Secondly, once we have a new database, we require query workloads for those. We have provided some tools for automated query generation, but at its core, all such methods would require some representative queries thought through by people familiar with the schema. This is the most challenging step for expanding such benchmarks, and we hope that open sourcing these tools can bring people together to collectively build larger workloads.
 
-* <b>Limits of the learning models.</b> The paper, [Are We Ready For Learned Cardinality Estimation?](http://vldb.org/pvldb/vol14/p1640-wang.pdf) won a Best Paper award in VLDB 2021. They ask several important questions about learned cardinality estimation models, but their experiments are restricted to single table estimations, i.e., without joins. CEB should provide the tools to ask similar questions in the more complex, query optimization use case of these estimators.
+* <b>Limits of the learning models.</b> The paper [Are We Ready For Learned Cardinality Estimation?](http://vldb.org/pvldb/vol14/p1640-wang.pdf) won a Best Paper award in VLDB 2021. They ask several important questions about learned cardinality estimation models, but their experiments are restricted to single table estimations, i.e., without joins. CEB should provide the tools to ask similar questions in the more complex, query optimization use case of these estimators.
 
 <!--* <b> Analyzing the space of optimal plans. </b> How often are different operators used, how many interesting plans are there, space of plans etc. similar to picasso etc.-->
 
-* <b>Data-driven models.</b> Comparing unsupervised learning models (e.g., [NeuroCard](https://github.com/neurocard/neurocard), [DeepDB](https://github.com/DataManagementLab/deepdb-public), [Fauce](http://pasalabs.org/papers/2021/VLDB21_Fauce.pdf), [BayesCard](https://arxiv.org/abs/2012.14743)) with the supervised learning models. Some of these approaches are harder to adapt to our full set of queries --- it involves modeling self joins, regex queries, and so on. Working to extend the data-driven approaches to these common use cases should be interesting. But we also have also converted other simpler query workloads, like JOB-M as used in NeuroCard, to our format, and provide scripts to run them and generate the plan costs etc.
+* <b>Data-driven models.</b> Comparing unsupervised learning models (e.g., [NeuroCard](https://github.com/neurocard/neurocard), [DeepDB](https://github.com/DataManagementLab/deepdb-public), [BayesCard](https://arxiv.org/abs/2012.14743)) with the supervised learning models. Some of these approaches are harder to adapt to our full set of queries --- it involves modeling self joins, regex queries, and so on. Working to extend the data-driven approaches to these common use cases should be interesting. But we also have also converted other simpler query workloads, like JOB-M as used in NeuroCard, to our format, and provide scripts to run them and generate the plan costs etc.
 * <b>Different execution environments.</b> In the [Flow-Loss paper](http://vldb.org/pvldb/vol14/p2019-negi.pdf), we mainly focused on one particular execution scenario: single-threaded execution on NVMe hard drives, which ensured minimum additional noise and variance. We have explored executing these queries in other scenarios, and we notice the runtime latencies fluctuate wildly. For instance, when executing on AWS EB2 storage, even the same query plan latencies can fluctuate due to the I/O bursts. On slower SATA hard disks, we find all the query plans get significantly slower, thus potentially causing many more challenging scenarios for the cardinality estimators. Similar effects are seen when we don't use indexes. These effects can also be somewhat modeled by different configuration settings --- which would allow Postgres Plan Cost to serve as a viable proxy for latencies in these situations. These queries, and evaluation framework, provide many interesting opportunities to analyze these impacts.
 
 * <b>Alternative approaches to cardinality estimation.</b> Another interesting line of research suggests that query optimizers should not need to rely on precise cardinality estimates when searching for the best plan. This includes [plan bouquets](https://dl.acm.org/doi/10.1145/2588555.2588566), [pessimistic query optimization](https://waltercai.github.io/assets/pessimistic-query-optimization.pdf), [robust query optimization](http://www.vldb.org/pvldb/vol11/p1360-wolf.pdf), and so on. For instance, pessimistic QO approaches have done quite well on JOB. It is interesting to see if they can do equally well on a larger workload, potentially with more edge cases, such as CEB.
