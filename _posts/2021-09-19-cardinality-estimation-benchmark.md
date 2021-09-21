@@ -6,11 +6,14 @@ title: "Cardinality Estimation Benchmark"
 *Authors: [Parimarjan Negi](https://parimarjan.github.io),
 [Ryan Marcus](https://rmarcus.info/blog/), [Andreas Kipf](https://people.csail.mit.edu/kipf/)*
 
+In this blogpost, we want to go over the motivations and applications of the Cardinality Estimation Benchmark (CEB) we released in [January](https://github.com/Cardinality-Estimation-Benchmark/ceb), and which was a part of the VLDB 2021 [Flow-Loss paper](http://vldb.org/pvldb/vol14/p2019-negi.pdf).
+
 There has been a lot of interest in using ML for cardinality estimation. The motivating application is often query optimization: when searching for the best execution plan, a query optimizer needs to estimate intermediate result sizes. In the most simplified setting, a better query plan may need to process smaller sized intermediate results, thereby utilizing fewer resources, and executing faster. Several approaches have shown that one can consistently outperform DBMS estimators, often by orders of magnitude in terms of average estimation accuracy. However, improving estimation accuracy may not necessarily improve an optimizer's final query plan, as highlighted in the following simple example[^estimation_plan_quality].
 
 ![Plan Cost Intuition](/assets/ceb/ceb-blog-intuition.jpeg)
 
-We utilize a novel programmatic templating scheme[^templates] to generate over 15K challenging queries on two databases (IMDb and StackExchange). More crucially, we provide a clean API to evaluate cardinality estimations on all of a query's subplans with respect to their impact on query plans.
+In order to build large workloads to evaluate the impact of cardinality estimators, we introduce a novel [programmatic templating scheme](https://github.com/learnedsystems/CEB/blob/main/TEMPLATES.md).
+We use it  to generate over 15K challenging queries on two databases (IMDb and StackExchange). More crucially, we provide a clean API to evaluate cardinality estimations on all of a query's subplans with respect to their impact on query plans.
 
 ## Example
 
@@ -18,11 +21,14 @@ Consider query 1a66 from CEB-IMDb, shown below. A cardinality estimator provides
 
 ![CEB query example](/assets/ceb/CEB-blog-eg1.jpeg)
 
-The subplan cardinality estimates can be fed into PostgreSQL, which gives us the best plan for these <i>estimates</i>. The cost of this plan using true cardinalities is the Postgres Plan Cost[^ppc]. Below, we visualize these plans when using the PostgreSQL cardinality estimates (left), which is almost 7x worse than using the true cardinalities (right).
+The subplan cardinality estimates can be fed into PostgreSQL, which gives us the best plan for these <i>estimates</i>. The cost of this plan using <i> true cardinalities </i> is the Postgres Plan Cost[^ppc]. Below, we visualize these plans when using the PostgreSQL cardinality estimates (left), which is almost 7x worse than using the true cardinalities (right).
 
 ![CEB query plan example](/assets/ceb/1a66-plans.jpeg)
 
-This whole process is automated in the [CEB GitHub repository](https://github.com/learnedsystems/ceb) --- one just needs to provide the subplan estimates. Each node is a scan or join operator. The colorbar for the nodes goes from green, i.e., cheap operations to expensive operations. Thus, looking for the red nodes immediately shows us why the estimates messed up: PostgreSQL underestimated cardinalities of two key nodes (highlighted in the left figure), and thus, using a nested-loop join was a bad choice --- since the true cardinalities of these nodes were large, and would therefore require a lot more processing. This is a common pattern of PostgreSQL cardinality underestimates resulting in bad plans. That being said, we also see examples in CEB where PostgreSQL gets a worse plan due to overestimates, and other subtler motifs.
+Each node is a scan or join operator. The colorbar for the nodes goes from green to red, i.e., cheap operations to expensive operations. Thus, looking for the red nodes immediately shows us why the estimates messed up: PostgreSQL underestimated cardinalities of two key nodes (highlighted in the left figure), and thus, using a nested-loop join was a bad choice --- since the true cardinalities of these nodes were large, and would therefore require a lot more processing. This is a common pattern of PostgreSQL cardinality underestimates resulting in bad plans. That being said, we also see examples in CEB where PostgreSQL gets a worse plan due to overestimates, or other subtler motifs.
+
+You can test your own cardinality estimator using our python framework in the [CEB GitHub repository](https://github.com/learnedsystems/ceb). You just need to provide the estimates for all the subplans, and it should evaluate those estimates based on Q-Error, or different Plan Costs (e.g., using the PostgreSQL backend, or a simpler cost model).
+
 
 <!--But, we also see examples in CEB where PostgreSQL gets a worse plan because of overestimates, for instance consider query 2a61 below.-->
 
