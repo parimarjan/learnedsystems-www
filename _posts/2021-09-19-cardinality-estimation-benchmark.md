@@ -6,7 +6,7 @@ title: "Cardinality Estimation Benchmark"
 *Authors: [Parimarjan Negi](https://parimarjan.github.io),
 [Ryan Marcus](https://rmarcus.info/blog/), [Andreas Kipf](https://people.csail.mit.edu/kipf/)*
 
-In this blogpost, we want to go over the motivations and applications of the Cardinality Estimation Benchmark (CEB) we released in [January](https://github.com/Cardinality-Estimation-Benchmark/ceb), and which was a part of the VLDB 2021 [Flow-Loss paper](http://vldb.org/pvldb/vol14/p2019-negi.pdf).
+In this blogpost, we want to go over the motivations and applications of the [Cardinality Estimation Benchmark (CEB)](https://github.com/learnedsystems/ceb) which was a part of the VLDB 2021 [Flow-Loss paper](http://vldb.org/pvldb/vol14/p2019-negi.pdf).
 
 There has been a lot of interest in using ML for cardinality estimation. The motivating application is often query optimization: when searching for the best execution plan, a query optimizer needs to estimate intermediate result sizes. In the most simplified setting, a better query plan may need to process smaller sized intermediate results, thereby utilizing fewer resources, and executing faster. Several approaches have shown that one can consistently outperform DBMS estimators, often by orders of magnitude in terms of average estimation accuracy. However, improving estimation accuracy may not necessarily improve an optimizer's final query plan, as highlighted in the following simple example[^estimation_plan_quality].
 
@@ -53,7 +53,7 @@ open research problem.
 
 The [Join Order Benchmark (JOB)](https://github.com/gregrahn/join-order-benchmark) did a great job of highlighting why TPC-style synthetic benchmarks may not be enough for evaluating query optimizers, in particular, the impact of cardinality estimation.
 In the [CEB repo](http://github.com/learnedsystems/CEB), we also provide cardinality data for JOB, and other derived workloads, such as [JOB-M](https://github.com/neurocard/neurocard), or [JOB-light](https://github.com/andreaskipf/learnedcardinalities/blob/master/workloads/job-light.sql), so they can be as easily evaluated with the tools described so far.
-However, even though JOB illustrates query optimization challenges, it contains too few queries for a cardinality estimation benchmark suited to the deep learning style models often used today. The table below shows key properties of CEB compared to JOB.
+However, even though JOB illustrates query optimization challenges, it contains too few queries for a cardinality estimation benchmark suited to the deep learning style models often used today. The table below shows key properties of CEB compared to JOB.[^ceb-stats]
 
 <!--![Benchmarks comparison](/assets/ceb/CEB-benchmark-comparison.jpeg){:height="360px" width="360px"}-->
 
@@ -100,6 +100,8 @@ We envision [CEB](https://github.com/learnedsystems/ceb) to serve as a foundatio
 
 [^estimation_plan_quality]: Intuitively, this is because to get the best plan, you only need the cost of the best plan to be the cheapest. So for instance, large estimation errors on subplans that are not great, would not affect it. There are more such scenarios in the [Flow-Loss paper](http://vldb.org/pvldb/vol14/p2019-negi.pdf).
 
-[^templates]: More details are given [here](https://github.com/learnedsystems/CEB/blob/main/TEMPLATES.md).
+<!--[^templates]: More details are given [here](https://github.com/learnedsystems/CEB/blob/main/TEMPLATES.md).-->
 
 [^ppc]: Postgres Plan Cost (PPC) is based on the abstract Plan Cost defined in the excellent ten year old paper, [Preventing Bad Plans by Bounding the Impact of Cardinality Estimation Errors](http://www.vldb.org/pvldb/vol2/vldb09-657.pdf) by Moerkotte et al. They also introduced Q-Error in the paper, which has been commonly used as the evaluation metric of choice in recent cardinality estimation papers. PPC is a useful proxy for query execution latencies in PostgreSQL, based on its cost model, but it is not DBMS specific. For instance, we have the basic ingredients for a hacky MySQL implementation [here](https://github.com/parimarjan/mysql-server). PPC is useful because executing queries can be very resource intensive, noisy, and so on. Meanwhile, PPC can be computed almost as easily as Q-Error, and it is more closely aligned with the goals of query optimization. And these don't always agree. For instance, we have seen scenarios where an estimator has lower average Q-Error, but higher Postgres Plan Cost. We show its correlation with runtimes, and further discuss the use of the Plan Costs in the [Flow-Loss paper](http://vldb.org/pvldb/vol14/p2019-negi.pdf).
+
+[^ceb-stats]: A new [benchmark](https://github.com/Nathaniel-Han/End-to-End-CardEst-Benchmark) was released last week, which has similar motivations as CEB. We have not yet had the time to look at, and compare it with our benchmark.
